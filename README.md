@@ -1,0 +1,1 @@
+This is my slowly progressing review of the fundamentals of the Vulkan API, building everything from scratch. I intend to use VMA for gpu memory allocation, but otherwise I'm presently avoiding qol libraries.
