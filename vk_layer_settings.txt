@@ -658,7 +658,7 @@ khronos_validation.stateless_param = true
 # ------------------------------------------
 # legacy_detection (WINDOWS_X86, WINDOWS_ARM, LINUX, MACOS, ANDROID)
 # Give warnings when using legacy parts of the API.
-khronos_validation.legacy_detection = false
+khronos_validation.legacy_detection = true
 
 # Thread Safety
 # ------------------------------------------
@@ -680,7 +680,7 @@ khronos_validation.thread_safety = true
 # - khronos_validation.syncval_submit_time_validation = true
 # - khronos_validation.syncval_shader_accesses_heuristic = false
 # - khronos_validation.syncval_reporting (Setting Group)
-khronos_validation.validate_sync = false
+khronos_validation.validate_sync = true
 
 # Submit time validation
 # ------------------------------------------
@@ -1050,7 +1050,7 @@ khronos_validation.gpuav_enable = false
 # - khronos_validation.validate_best_practices_amd = false
 # - khronos_validation.validate_best_practices_img = false
 # - khronos_validation.validate_best_practices_nvidia = false
-khronos_validation.validate_best_practices = false
+khronos_validation.validate_best_practices = true
 
 # ARM-specific best practices
 # ------------------------------------------
@@ -1066,7 +1066,7 @@ khronos_validation.validate_best_practices = false
 # Outputs warnings for spec-conforming but non-ideal code on AMD GPUs.
 # This setting requires ALL of the following values:
 # - khronos_validation.validate_best_practices = true
-# khronos_validation.validate_best_practices_amd = false (Commented out as the set of dependences is not satisfied)
+khronos_validation.validate_best_practices_amd = true
 
 # IMG-specific best practices
 # ------------------------------------------

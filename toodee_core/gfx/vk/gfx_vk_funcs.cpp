@@ -58,6 +58,28 @@ void LoadInstanceVulkanFuncs( VkInstance instance, const std::vector<const char 
 #include "gfx_vk_funcs.inl"
 }
 
+
+void LoadDeviceVulkanFuncs( VkDevice device, const std::vector<const char *> &extensions )
+{
+#define DEVICE_LEVEL_VULKAN_FUNCTION( function )								\
+	function = (PFN_##function)vkGetDeviceProcAddr( device, #function );	\
+	Com_Assert_Fatal( function != nullptr );
+
+#define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION( function, extension )			\
+	for ( const char *ext : extensions )												\
+	{																					\
+		if ( std::strcmp( ext, extension ) == 0 )										\
+		{																				\
+			function = (PFN_##function)vkGetDeviceProcAddr( device, #function );	\
+			Com_Assert_Fatal( function != nullptr );									\
+			break;																		\
+		}																				\
+	}
+
+#include "gfx_vk_funcs.inl"
+}
+
+
 void ReleaseVulkanLib()
 {
 	FreeLibrary( s_vkLibrary );

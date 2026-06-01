@@ -14,6 +14,7 @@
 
 void LoadGlobalVulkanFuncs();
 void LoadInstanceVulkanFuncs( VkInstance instance, const std::vector<const char *> &extensions );
+void LoadDeviceVulkanFuncs( VkDevice device, const std::vector<const char *> &extensions );
 void ReleaseVulkanLib();
 
 #define VK_CALL_WITH_LINE_IMPL( fn, line ) \

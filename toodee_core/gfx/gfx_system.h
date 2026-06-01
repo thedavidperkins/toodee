@@ -20,6 +20,9 @@ private:
 	void CreateVulkanDevice();
 	void DestroyVulkanDevice();
 
+	void SetupQueues();
+
+
 	GfxSystem();
 	~GfxSystem();
 	GfxSystem( const GfxSystem & ) = delete;
@@ -27,9 +30,18 @@ private:
 	GfxSystem &operator=( const GfxSystem & ) = delete;
 	GfxSystem &operator=( GfxSystem && ) = delete;
 
-	VkInstance m_instance;
-	VkPhysicalDevice m_physicalDevice;
-	VkDevice m_device;
-	std::vector<const char *> m_enabledInstanceExtensions;
-	std::vector<const char *> m_enabledDeviceExtensions;
+	VkInstance m_instance = VK_NULL_HANDLE;
+	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+	VkDevice m_device = VK_NULL_HANDLE;
+
+	uint m_gfxQueueFamilyIdx = 0;
+	uint m_computeQueueFamilyIdx = 0;
+	VkQueue m_gfxQueue = VK_NULL_HANDLE;
+	VkQueue m_computeQueue = VK_NULL_HANDLE;
+
+#if DEBUG_BUILD
+	void SetupDebugMessenger();
+	VkDebugUtilsMessengerCreateInfoEXT m_debugMsgrInfo{};
+	VkDebugUtilsMessengerEXT m_debugMsgr = VK_NULL_HANDLE;
+#endif // #if DEBUG_BUILD
 };

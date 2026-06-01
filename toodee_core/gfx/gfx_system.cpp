@@ -1,11 +1,66 @@
-#include "common/com_types.h"
 #include "common/com_debug.h"
+#include "common/com_logger.h"
+#include "common/com_types.h"
 #include "common/com_utils.h"
 
 #include "gfx_system.h"
 
 #include "vk/gfx_vk_funcs.h"
 #include "vk/gfx_vk_struct_factory.h"
+
+
+#if DEBUG_BUILD
+static VkBool32 DebugCallback(
+	VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+	VkDebugUtilsMessageTypeFlagsEXT types,
+	const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+	void *userData )
+{
+	if ( severity < VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT )
+	{
+		return VK_FALSE;
+	}
+
+	ComLogLevel logLevel = severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? ComLogLevel::Verbose
+		: severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT ? ComLogLevel::Info
+		: severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? ComLogLevel::Warning
+		: ComLogLevel::Error;
+
+	COM_LOG( logLevel, "[VK Validation] {} ({}): {}\n", pCallbackData->pMessageIdName, pCallbackData->messageIdNumber, pCallbackData->pMessage );
+	if ( pCallbackData->queueLabelCount > 0u )
+	{
+		COM_LOG( logLevel, "\tQueues:\n" );
+		for ( uint idx = 0u; idx < pCallbackData->queueLabelCount; ++idx )
+		{
+			COM_LOG( logLevel, "\t\t{}\n", pCallbackData->pQueueLabels[idx].pLabelName );
+		}
+	}
+	if ( pCallbackData->cmdBufLabelCount > 0u )
+	{
+		COM_LOG( logLevel, "\tCommand Buffers:\n" );
+		for ( uint idx = 0u; idx < pCallbackData->cmdBufLabelCount; ++idx )
+		{
+			COM_LOG( logLevel, "\t\t{}\n", pCallbackData->pCmdBufLabels[idx].pLabelName );
+		}
+	}
+	if ( pCallbackData->objectCount > 0u )
+	{
+		COM_LOG( logLevel, "\tObjects:\n" );
+		for ( uint idx = 0u; idx < pCallbackData->objectCount; ++idx )
+		{
+			COM_LOG( logLevel, "\t\t{}\n", VulkanObjectTypeToString( pCallbackData->pObjects[idx].objectType ) );
+		}
+	}
+
+	if ( severity > VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT )
+	{
+		Com_Assert_Warn( false );
+	}
+
+	return VK_FALSE;
+}
+#endif // #if DEBUG_BUILD
+
 
 void GfxSystem::InitVulkanInstance()
 {
@@ -26,7 +81,8 @@ void GfxSystem::InitVulkanInstance()
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 	};
 
-	m_enabledInstanceExtensions.reserve( ARRAY_COUNT( desiredExtensions ) );
+	std::vector<const char *> enabledInstanceExtensions;
+	enabledInstanceExtensions.reserve( ARRAY_COUNT( desiredExtensions ) );
 	for ( const char *const desiredExtension : desiredExtensions )
 	{
 		auto it = std::find_if( availableExtensions.begin(), availableExtensions.end(), [&desiredExtension]( const VkExtensionProperties &ext )
@@ -35,8 +91,15 @@ void GfxSystem::InitVulkanInstance()
 		} );
 
 		Com_Assert_Warn( it != availableExtensions.end() );
-		m_enabledInstanceExtensions.push_back( desiredExtension );
+		enabledInstanceExtensions.push_back( desiredExtension );
 	}
+
+	std::vector<const char *> layers
+	{
+#if DEBUG_BUILD
+		"VK_LAYER_KHRONOS_validation",
+#endif // #if DEBUG_BUILD
+	};
 
 	BEGIN_INFO_STRUCT( VkApplicationInfo, appInfo )
 		.pApplicationName = "TooDeeTesting",
@@ -48,11 +111,30 @@ void GfxSystem::InitVulkanInstance()
 
 	BEGIN_INFO_STRUCT( VkInstanceCreateInfo, instInfo )
 		.pApplicationInfo = &appInfo,
-		.enabledExtensionCount = static_cast<uint>( m_enabledInstanceExtensions.size() ),
-		.ppEnabledExtensionNames = m_enabledInstanceExtensions.data(),
+		.enabledLayerCount = static_cast<uint>( layers.size() ),
+		.ppEnabledLayerNames = layers.data(),
+		.enabledExtensionCount = static_cast<uint>( enabledInstanceExtensions.size() ),
+		.ppEnabledExtensionNames = enabledInstanceExtensions.data(),
 		END_INFO_STRUCT;
 
+#if DEBUG_BUILD
+	BEGIN_ASSIGN_INFO_STRUCT( VkDebugUtilsMessengerCreateInfoEXT, m_debugMsgrInfo )
+		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
+		| VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+		| VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+		| VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+		.messageType = /*VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+		| */VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+		| VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+		.pfnUserCallback = DebugCallback,
+		END_INFO_STRUCT;
+
+	instInfo.pNext = &m_debugMsgrInfo;
+#endif // #if DEBUG_BUILD
+
 	VK_CALL( vkCreateInstance( &instInfo, nullptr, &m_instance ) );
+
+	LoadInstanceVulkanFuncs( m_instance, enabledInstanceExtensions );
 }
 
 
@@ -94,6 +176,11 @@ void GfxSystem::CreateVulkanDevice()
 		.pNext = &properties11,
 		END_INFO_STRUCT;
 
+#if DEBUG_BUILD
+	CREATE_INFO_STRUCT( VkPhysicalDeviceAddressBindingReportFeaturesEXT, bindingReportFeature );
+	features14.pNext = &bindingReportFeature;
+#endif // #if DEBUG_BUILD
+
 	vkGetPhysicalDeviceProperties2( m_physicalDevice, &properties );
 	vkGetPhysicalDeviceFeatures2( m_physicalDevice, &features );
 
@@ -108,9 +195,13 @@ void GfxSystem::CreateVulkanDevice()
 	const char *const desiredExtensions[] =
 	{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+#if DEBUG_BUILD
+		VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME,
+#endif // #if DEBUG_BUILD
 	};
 
-	m_enabledDeviceExtensions.reserve( ARRAY_COUNT( desiredExtensions ) );
+	std::vector<const char *> enabledDeviceExtensions;
+	enabledDeviceExtensions.reserve( ARRAY_COUNT( desiredExtensions ) );
 	for ( const char *const desiredExtension : desiredExtensions )
 	{
 		auto it = std::find_if( availableExtensions.begin(), availableExtensions.end(), [&desiredExtension]( const VkExtensionProperties &ext )
@@ -119,13 +210,17 @@ void GfxSystem::CreateVulkanDevice()
 		} );
 
 		Com_Assert_Warn( it != availableExtensions.end() );
-		m_enabledDeviceExtensions.push_back( desiredExtension );
+		enabledDeviceExtensions.push_back( desiredExtension );
 	}
 
 	uint queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties2( m_physicalDevice, &queueFamilyCount, nullptr );
 
 	std::vector<VkQueueFamilyProperties2> queueFamilies( queueFamilyCount );
+	for ( VkQueueFamilyProperties2 &props : queueFamilies )
+	{
+		props.sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+	}
 	vkGetPhysicalDeviceQueueFamilyProperties2( m_physicalDevice, &queueFamilyCount, queueFamilies.data() );
 
 	auto gfxQueueIt = std::find_if( queueFamilies.begin(), queueFamilies.end(), []( const VkQueueFamilyProperties2 &queueFamily )
@@ -134,26 +229,28 @@ void GfxSystem::CreateVulkanDevice()
 		return props.queueCount > 0 && ( props.queueFlags & VK_QUEUE_GRAPHICS_BIT );
 	} );
 	Com_Assert_Fatal( gfxQueueIt != queueFamilies.end() );
-	const uint gfxIdx = static_cast<uint>( std::distance( queueFamilies.begin(), gfxQueueIt ) );
+	m_gfxQueueFamilyIdx = static_cast<uint>( std::distance( queueFamilies.begin(), gfxQueueIt ) );
 
-	auto computeQueueIt = std::find_if( queueFamilies.begin(), queueFamilies.end(), []( const VkQueueFamilyProperties2 &queueFamily )
+	// for now we'll assume we need a separate queue family for async compute, since I previous tried to do two
+	// queues from the graphics family and my card only supported one
+	auto computeQueueIt = std::find_if( queueFamilies.begin(), queueFamilies.end(), [&gfxQueueIt]( const VkQueueFamilyProperties2 &queueFamily )
 	{
 		const VkQueueFamilyProperties &props = queueFamily.queueFamilyProperties;
-		return props.queueCount > 0 && ( props.queueFlags & VK_QUEUE_COMPUTE_BIT );
+		return props.queueCount > 0 && ( props.queueFlags & VK_QUEUE_COMPUTE_BIT ) && ( &queueFamily != &( *gfxQueueIt ) );
 	} );
 	Com_Assert_Fatal( computeQueueIt != queueFamilies.end() );
-	const uint computeIdx = static_cast<uint>( std::distance( queueFamilies.begin(), computeQueueIt ) );
+	m_computeQueueFamilyIdx = static_cast<uint>( std::distance( queueFamilies.begin(), computeQueueIt ) );
 
 	constexpr float queuePriority = 1.f;
 
 	BEGIN_INFO_STRUCT( VkDeviceQueueCreateInfo, gfxQueue )
-		.queueFamilyIndex = gfxIdx,
+		.queueFamilyIndex = m_gfxQueueFamilyIdx,
 		.queueCount = 1u,
 		.pQueuePriorities = &queuePriority,
 		END_INFO_STRUCT;
 
 	BEGIN_INFO_STRUCT( VkDeviceQueueCreateInfo, computeQueue )
-		.queueFamilyIndex = computeIdx,
+		.queueFamilyIndex = m_computeQueueFamilyIdx,
 		.queueCount = 1u,
 		.pQueuePriorities = &queuePriority,
 		END_INFO_STRUCT;
@@ -168,11 +265,18 @@ void GfxSystem::CreateVulkanDevice()
 		.pNext = &features,
 		.queueCreateInfoCount = ARRAY_COUNT( queueInfos ),
 		.pQueueCreateInfos = queueInfos,
-		.enabledExtensionCount = static_cast<uint>( m_enabledDeviceExtensions.size() ),
-		.ppEnabledExtensionNames = m_enabledDeviceExtensions.data(),
+		.enabledExtensionCount = static_cast<uint>( enabledDeviceExtensions.size() ),
+		.ppEnabledExtensionNames = enabledDeviceExtensions.data(),
 		END_INFO_STRUCT;
 
 	VK_CALL( vkCreateDevice( m_physicalDevice, &deviceInfo, nullptr, &m_device ) );
+
+	LoadDeviceVulkanFuncs( m_device, enabledDeviceExtensions );
+
+#if DEBUG_BUILD
+	m_debugMsgrInfo.messageType |= VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
+	VK_CALL( vkCreateDebugUtilsMessengerEXT( m_instance, &m_debugMsgrInfo, nullptr, &m_debugMsgr ) );
+#endif // #if DEBUG_BUILD
 }
 
 
@@ -185,8 +289,23 @@ void GfxSystem::DestroyVulkanDevice()
 
 void GfxSystem::ShutdownVulkanInstance()
 {
+#if DEBUG_BUILD
+	vkDestroyDebugUtilsMessengerEXT( m_instance, m_debugMsgr, nullptr );
+	m_debugMsgr = VK_NULL_HANDLE;
+#endif // #if DEBUG_BUILD
+
 	vkDestroyInstance( m_instance, nullptr );
 	m_instance = VK_NULL_HANDLE;
+}
+
+
+void GfxSystem::SetupQueues()
+{
+	vkGetDeviceQueue( m_device, m_gfxQueueFamilyIdx, 0, &m_gfxQueue );
+	vkGetDeviceQueue( m_device, m_computeQueueFamilyIdx, 0, &m_computeQueue );
+
+	Com_Assert_Fatal( m_gfxQueue != VK_NULL_HANDLE );
+	Com_Assert_Fatal( m_computeQueue != VK_NULL_HANDLE );
 }
 
 
@@ -194,8 +313,8 @@ GfxSystem::GfxSystem()
 {
 	LoadGlobalVulkanFuncs();
 	InitVulkanInstance();
-	LoadInstanceVulkanFuncs( m_instance, m_enabledInstanceExtensions );
 	CreateVulkanDevice();
+	SetupQueues();
 }
 
 
