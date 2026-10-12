@@ -1,7 +1,8 @@
 #pragma once
 #include <cstdint>
 
-using ulong = uint64_t;
+using int64 = int64_t;
+using uint64 = uint64_t;
 using uint = uint32_t;
 using ushort = uint16_t;
-using byte = uint8_t;
+using ubyte = uint8_t;

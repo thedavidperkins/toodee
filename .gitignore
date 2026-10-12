@@ -1,1 +1,8 @@
-build/*
+build/
+
+*.vcxproj*
+*.slnx
+
+CMakeCache.txt
+CMakeFiles/
+*.cmake

@@ -1,13 +1,15 @@
 #include "common/com_debug.h"
+#include "gfx_system.h"
+#include "vk/gfx_vk_funcs.h"
+#include "vk/gfx_vk_struct_factory.h"
+
+#include "app/app_rgfw.h"
+#include "app/app_window.h"
 #include "common/com_logger.h"
 #include "common/com_types.h"
 #include "common/com_utils.h"
 
-#include "gfx_system.h"
-
-#include "vk/gfx_vk_funcs.h"
-#include "vk/gfx_vk_struct_factory.h"
-
+#include <algorithm>
 
 #if DEBUG_BUILD
 static VkBool32 DebugCallback(
@@ -282,6 +284,7 @@ void GfxSystem::CreateVulkanDevice()
 
 void GfxSystem::DestroyVulkanDevice()
 {
+	VK_CALL( vkDeviceWaitIdle( m_device ) );
 	vkDestroyDevice( m_device, nullptr );
 	m_device = VK_NULL_HANDLE;
 }
@@ -309,18 +312,126 @@ void GfxSystem::SetupQueues()
 }
 
 
-GfxSystem::GfxSystem()
+void GfxSystem::UnsetQueues()
 {
+	m_gfxQueue = VK_NULL_HANDLE;
+	m_computeQueue = VK_NULL_HANDLE;
+}
+
+
+void GfxSystem::CreateSwapchain()
+{
+	Com_Assert_Fatal( m_window != nullptr );
+
+	VK_CALL( RGFW_window_createSurface_Vulkan( m_window->Handle(), m_instance, &m_surface ) );
+	Com_Assert_Fatal( m_surface != VK_NULL_HANDLE );
+
+	VkBool32 supported = VK_FALSE;
+	VK_CALL( vkGetPhysicalDeviceSurfaceSupportKHR( m_physicalDevice, m_gfxQueueFamilyIdx, m_surface, &supported ) );
+
+	Com_Assert_Fatal( supported == VK_TRUE );
+
+	VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR; // guaranteed available
+	Com_Assert_Fatal( m_surface != VK_NULL_HANDLE );
+
+	uint presentModeCount = 0;
+	VK_CALL( vkGetPhysicalDeviceSurfacePresentModesKHR( m_physicalDevice, m_surface, &presentModeCount, nullptr ) );
+	Com_Assert_Fatal( presentModeCount > 0 );
+
+	std::vector<VkPresentModeKHR> modesAvailable;
+	modesAvailable.resize( presentModeCount );
+
+	VK_CALL( vkGetPhysicalDeviceSurfacePresentModesKHR( m_physicalDevice, m_surface, &presentModeCount, modesAvailable.data() ) );
+
+	// Keeping it simple: mailbox if available, FIFO otherwise
+	for ( const VkPresentModeKHR &mode : modesAvailable )
+	{
+		if ( mode == VK_PRESENT_MODE_MAILBOX_KHR )
+		{
+			presentMode = mode;
+			return;
+		}
+	}
+
+	uint swapchainImgCount = 3;
+
+	BEGIN_INFO_STRUCT( VkPhysicalDeviceSurfaceInfo2KHR, surfaceInfo )
+		.surface = m_surface,
+	END_INFO_STRUCT;
+
+	CREATE_INFO_STRUCT( VkSurfaceCapabilities2KHR, surfaceCapabilities );
+	VK_CALL( vkGetPhysicalDeviceSurfaceCapabilities2KHR( m_physicalDevice, &surfaceInfo, &surfaceCapabilities ) );
+
+	swapchainImgCount = max( min( swapchainImgCount, surfaceCapabilities.surfaceCapabilities.maxImageCount ), surfaceCapabilities.surfaceCapabilities.minImageCount );
+
+	// Confirm that the window governs the swapchain image size. If this isn't true, the window relies on the image for sizing
+	Com_Assert_Fatal( surfaceCapabilities.surfaceCapabilities.currentExtent.width != 0xFFFFFFFF );
+
+	uint formatCount = 0;
+	VK_CALL( vkGetPhysicalDeviceSurfaceFormats2KHR( m_physicalDevice, &surfaceInfo, &formatCount, nullptr ) );
+	Com_Assert_Fatal( formatCount > 0 );
+
+	std::vector<VkSurfaceFormat2KHR> formats;
+	CREATE_INFO_STRUCT( VkSurfaceFormat2KHR, emptyFormat );
+	formats.resize( formatCount );
+	std::fill( formats.begin(), formats.end(), emptyFormat );
+
+	// for simplicity, we'll take the first supported format until there's a reason not to.
+	VK_CALL( vkGetPhysicalDeviceSurfaceFormats2KHR( m_physicalDevice, &surfaceInfo, &formatCount, formats.data() ) );
+
+	BEGIN_INFO_STRUCT( VkSwapchainCreateInfoKHR, swapchainInfo )
+		.surface = m_surface,
+		.minImageCount = swapchainImgCount,
+		.imageFormat = formats[0].surfaceFormat.format,
+		.imageColorSpace = formats[0].surfaceFormat.colorSpace,
+		.imageExtent = surfaceCapabilities.surfaceCapabilities.currentExtent,
+		.imageArrayLayers = 1u,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.presentMode = presentMode,
+		.clipped = VK_TRUE,
+	END_INFO_STRUCT;
+	VK_CALL( vkCreateSwapchainKHR( m_device, &swapchainInfo, nullptr, &m_swapchain ) );
+
+	Com_Assert_Fatal( m_swapchain != VK_NULL_HANDLE );
+}
+
+
+void GfxSystem::DestroySwapchain()
+{
+	vkDestroySwapchainKHR( m_device, m_swapchain, nullptr );
+	m_swapchain = VK_NULL_HANDLE;
+
+	vkDestroySurfaceKHR( m_instance, m_surface, nullptr );
+	m_surface = VK_NULL_HANDLE;
+}
+
+void GfxSystem::Init( AppWindow &window )
+{
+	Com_Assert_Fatal( m_window == nullptr );
+	m_window = &window;
+
 	LoadGlobalVulkanFuncs();
 	InitVulkanInstance();
 	CreateVulkanDevice();
 	SetupQueues();
+	CreateSwapchain();
 }
 
 
-GfxSystem::~GfxSystem()
+void GfxSystem::Finalize()
 {
+	DestroySwapchain();
+	UnsetQueues();
 	DestroyVulkanDevice();
 	ShutdownVulkanInstance();
 	ReleaseVulkanLib();
 }
+
+void GfxSystem::RenderFrame()
+{
+
+}
+
