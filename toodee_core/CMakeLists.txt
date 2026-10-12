@@ -10,7 +10,6 @@ set(header_list
   common/com_logger.h
   common/com_types.h
   common/com_utils.h
-  common/com_windows.h
   gfx/gfx_system.h
   gfx/vk/gfx_vk_api.h
   gfx/vk/gfx_vk_funcs.h
