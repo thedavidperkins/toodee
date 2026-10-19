@@ -10,10 +10,17 @@ set(header_list
   common/com_logger.h
   common/com_types.h
   common/com_utils.h
+  gfx/gfx_command_buffer.h
+  gfx/gfx_globals.h
+  gfx/gfx_image.h
+  gfx/gfx_memory.h
+  gfx/gfx_swapchain.h
+  gfx/gfx_sync.h
   gfx/gfx_system.h
   gfx/vk/gfx_vk_api.h
   gfx/vk/gfx_vk_funcs.h
   gfx/vk/gfx_vk_struct_factory.h
+  gfx/vk/gfx_vk_vma.h
 )
 
 set(source_list
@@ -21,8 +28,15 @@ set(source_list
   app/app_rgfw.cpp
   app/app_window.cpp
   common/com_debug.cpp
+  gfx/gfx_command_buffer.cpp
+  gfx/gfx_globals.cpp
+  gfx/gfx_image.cpp
+  gfx/gfx_memory.cpp
+  gfx/gfx_swapchain.cpp
+  gfx/gfx_sync.cpp
   gfx/gfx_system.cpp
   gfx/vk/gfx_vk_funcs.cpp
+  gfx/vk/gfx_vk_vma.cpp
 )
 
 set(inline_list

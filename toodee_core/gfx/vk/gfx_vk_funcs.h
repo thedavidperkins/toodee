@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx_vk_api.h"
+#include "common/com_debug.h"
 #include <vector>
 
 #define EXPORTED_VULKAN_FUNCTION( function ) extern PFN_##function function;
@@ -19,7 +20,7 @@ void ReleaseVulkanLib();
 
 #define VK_CALL_WITH_LINE_IMPL( fn, line ) \
 VkResult res##line = fn; \
-Com_Assert_Warn( res##line == VK_SUCCESS );
+Com_Assert_Warn( res##line == VK_SUCCESS )
 
 #define VK_CALL_WITH_LINE( fn, line ) VK_CALL_WITH_LINE_IMPL( fn, line )
 

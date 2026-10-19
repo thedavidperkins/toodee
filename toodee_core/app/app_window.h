@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/com_types.h"
+
 struct RGFW_window;
 
 class AppWindow
@@ -15,6 +17,8 @@ public:
 
 	bool IsClosing() const;
 	void Close();
+
+	uvec2 Dims() const;
 
 	RGFW_window *Handle() { return m_window; }
 private:

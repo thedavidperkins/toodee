@@ -8,13 +8,21 @@
 
 namespace ComAssertInternal
 {
-void Com_Assert_IMPL( bool condition, bool fatal, const char *conditionText )
+void Com_Assert_IMPL( bool condition, bool fatal, const char *conditionText, const char *msgText )
 {
 	if ( !condition )
 	{
 		const ComLogLevel logLevel = fatal ? ComLogLevel::Fatal : ComLogLevel::Error;
 		const std::stacktrace trace = std::stacktrace::current();
-		COM_LOG( logLevel, "Asserted condition {} failed.\nStack trace:\n{}\n", conditionText, std::to_string( trace ) );
+		if ( msgText != nullptr )
+		{
+			COM_LOG( logLevel, "Assert msg: {}\n", msgText );
+		}
+		else
+		{
+			COM_LOG( logLevel, "Asserted condition {} failed.\n", conditionText );
+		}
+		COM_LOG( logLevel, "Stack trace : \n{}\n", std::to_string( trace ) );
 		__debugbreak();
 		if ( fatal )
 		{

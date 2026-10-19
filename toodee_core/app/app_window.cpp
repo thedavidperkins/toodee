@@ -1,6 +1,8 @@
-#include "common/com_logger.h"
 #include "app_window.h"
 #include "app_rgfw.h"
+
+#include "common/com_debug.h"
+#include "common/com_logger.h"
 
 AppWindow::AppWindow( const char *const appName )
 {
@@ -25,4 +27,16 @@ bool AppWindow::IsClosing() const
 void AppWindow::Close()
 {
 	RGFW_window_setShouldClose( m_window, true );
+}
+
+
+uvec2 AppWindow::Dims() const
+{
+	int w = -1;
+	int h = -1;
+
+	const RGFW_bool success = RGFW_window_getSizeInPixels( m_window, &w, &h );
+	Com_Assert_Fatal( success );
+
+	return { static_cast<uint>( w ), static_cast<uint>( h ) };
 }

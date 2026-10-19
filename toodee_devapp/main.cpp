@@ -1,8 +1,23 @@
 #include "app/app_base.h"
 #include "app/app_rgfw.h"
+#include "gfx/gfx_globals.h"
 
 #include <print>
+#include <random>
 #include <thread>
+
+
+VkClearColorValue GenerateRandomColor()
+{
+	static std::mt19937 mt;
+	return
+	{
+		std::generate_canonical<float, -1>( mt ),
+		std::generate_canonical<float, -1>( mt ),
+		std::generate_canonical<float, -1>( mt ),
+		1.f,
+	};
+}
 
 
 bool MouseEventCallback( RGFW_window *window, const RGFW_event &event )
@@ -14,6 +29,7 @@ bool MouseEventCallback( RGFW_window *window, const RGFW_event &event )
 		int mouseX, mouseY;
 		RGFW_window_getMouse( window, &mouseX, &mouseY );
 		std::print( "You clicked at x: {}, y: {}\n", mouseX, mouseY );
+		g_glob.clearColor = GenerateRandomColor();
 		break;
 	}
 	default:

@@ -1,4 +1,8 @@
 #include "common/com_debug.h"
+#include "gfx_command_buffer.h"
+#include "gfx_globals.h"
+#include "gfx_memory.h"
+#include "gfx_sync.h"
 #include "gfx_system.h"
 #include "vk/gfx_vk_funcs.h"
 #include "vk/gfx_vk_struct_factory.h"
@@ -23,9 +27,9 @@ static VkBool32 DebugCallback(
 		return VK_FALSE;
 	}
 
-	ComLogLevel logLevel = severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? ComLogLevel::Verbose
-		: severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT ? ComLogLevel::Info
-		: severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? ComLogLevel::Warning
+	ComLogLevel logLevel = severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? ComLogLevel::Verbose
+		: severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT ? ComLogLevel::Info
+		: severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? ComLogLevel::Warning
 		: ComLogLevel::Error;
 
 	COM_LOG( logLevel, "[VK Validation] {} ({}): {}\n", pCallbackData->pMessageIdName, pCallbackData->messageIdNumber, pCallbackData->pMessage );
@@ -153,30 +157,30 @@ void GfxSystem::CreateVulkanDevice()
 	CREATE_INFO_STRUCT( VkPhysicalDeviceVulkan14Features, features14 );
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan13Features, features13 )
 		.pNext = &features14,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan12Features, features12 )
 		.pNext = &features13,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan11Features, features11 )
 		.pNext = &features12,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceFeatures2, features )
 		.pNext = &features11,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 
 	CREATE_INFO_STRUCT( VkPhysicalDeviceVulkan14Properties, properties14 );
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan13Properties, properties13 )
 		.pNext = &properties14,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan12Properties, properties12 )
 		.pNext = &properties13,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceVulkan11Properties, properties11 )
 		.pNext = &properties12,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 	BEGIN_INFO_STRUCT( VkPhysicalDeviceProperties2, properties )
 		.pNext = &properties11,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 
 #if DEBUG_BUILD
 	CREATE_INFO_STRUCT( VkPhysicalDeviceAddressBindingReportFeaturesEXT, bindingReportFeature );
@@ -187,6 +191,7 @@ void GfxSystem::CreateVulkanDevice()
 	vkGetPhysicalDeviceFeatures2( m_physicalDevice, &features );
 
 	Com_Assert_Fatal( properties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU );
+	Com_Assert_Fatal( features12.bufferDeviceAddress == VK_TRUE );
 
 	uint extensionCount = 0;
 	vkEnumerateDeviceExtensionProperties( m_physicalDevice, nullptr, &extensionCount, nullptr );
@@ -197,6 +202,7 @@ void GfxSystem::CreateVulkanDevice()
 	const char *const desiredExtensions[] =
 	{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME,
 #if DEBUG_BUILD
 		VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME,
 #endif // #if DEBUG_BUILD
@@ -231,7 +237,7 @@ void GfxSystem::CreateVulkanDevice()
 		return props.queueCount > 0 && ( props.queueFlags & VK_QUEUE_GRAPHICS_BIT );
 	} );
 	Com_Assert_Fatal( gfxQueueIt != queueFamilies.end() );
-	m_gfxQueueFamilyIdx = static_cast<uint>( std::distance( queueFamilies.begin(), gfxQueueIt ) );
+	m_queueFamilyIdxGfx = static_cast<uint>( std::distance( queueFamilies.begin(), gfxQueueIt ) );
 
 	// for now we'll assume we need a separate queue family for async compute, since I previous tried to do two
 	// queues from the graphics family and my card only supported one
@@ -241,21 +247,21 @@ void GfxSystem::CreateVulkanDevice()
 		return props.queueCount > 0 && ( props.queueFlags & VK_QUEUE_COMPUTE_BIT ) && ( &queueFamily != &( *gfxQueueIt ) );
 	} );
 	Com_Assert_Fatal( computeQueueIt != queueFamilies.end() );
-	m_computeQueueFamilyIdx = static_cast<uint>( std::distance( queueFamilies.begin(), computeQueueIt ) );
+	m_queueFamilyIdxCompute = static_cast<uint>( std::distance( queueFamilies.begin(), computeQueueIt ) );
 
 	constexpr float queuePriority = 1.f;
 
 	BEGIN_INFO_STRUCT( VkDeviceQueueCreateInfo, gfxQueue )
-		.queueFamilyIndex = m_gfxQueueFamilyIdx,
+		.queueFamilyIndex = m_queueFamilyIdxGfx,
 		.queueCount = 1u,
 		.pQueuePriorities = &queuePriority,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 
 	BEGIN_INFO_STRUCT( VkDeviceQueueCreateInfo, computeQueue )
-		.queueFamilyIndex = m_computeQueueFamilyIdx,
+		.queueFamilyIndex = m_queueFamilyIdxCompute,
 		.queueCount = 1u,
 		.pQueuePriorities = &queuePriority,
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 
 	VkDeviceQueueCreateInfo queueInfos[] =
 	{
@@ -269,7 +275,7 @@ void GfxSystem::CreateVulkanDevice()
 		.pQueueCreateInfos = queueInfos,
 		.enabledExtensionCount = static_cast<uint>( enabledDeviceExtensions.size() ),
 		.ppEnabledExtensionNames = enabledDeviceExtensions.data(),
-		END_INFO_STRUCT;
+	END_INFO_STRUCT;
 
 	VK_CALL( vkCreateDevice( m_physicalDevice, &deviceInfo, nullptr, &m_device ) );
 
@@ -304,109 +310,40 @@ void GfxSystem::ShutdownVulkanInstance()
 
 void GfxSystem::SetupQueues()
 {
-	vkGetDeviceQueue( m_device, m_gfxQueueFamilyIdx, 0, &m_gfxQueue );
-	vkGetDeviceQueue( m_device, m_computeQueueFamilyIdx, 0, &m_computeQueue );
+	vkGetDeviceQueue( m_device, m_queueFamilyIdxGfx, 0, &m_queueGfx );
+	vkGetDeviceQueue( m_device, m_queueFamilyIdxCompute, 0, &m_queueCompute );
 
-	Com_Assert_Fatal( m_gfxQueue != VK_NULL_HANDLE );
-	Com_Assert_Fatal( m_computeQueue != VK_NULL_HANDLE );
+	Com_Assert_Fatal( m_queueGfx != VK_NULL_HANDLE );
+	Com_Assert_Fatal( m_queueCompute != VK_NULL_HANDLE );
 }
 
 
 void GfxSystem::UnsetQueues()
 {
-	m_gfxQueue = VK_NULL_HANDLE;
-	m_computeQueue = VK_NULL_HANDLE;
+	m_queueGfx = VK_NULL_HANDLE;
+	m_queueCompute = VK_NULL_HANDLE;
 }
 
 
-void GfxSystem::CreateSwapchain()
+void GfxSystem::InitPersistentResources()
 {
-	Com_Assert_Fatal( m_window != nullptr );
-
-	VK_CALL( RGFW_window_createSurface_Vulkan( m_window->Handle(), m_instance, &m_surface ) );
-	Com_Assert_Fatal( m_surface != VK_NULL_HANDLE );
-
-	VkBool32 supported = VK_FALSE;
-	VK_CALL( vkGetPhysicalDeviceSurfaceSupportKHR( m_physicalDevice, m_gfxQueueFamilyIdx, m_surface, &supported ) );
-
-	Com_Assert_Fatal( supported == VK_TRUE );
-
-	VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR; // guaranteed available
-	Com_Assert_Fatal( m_surface != VK_NULL_HANDLE );
-
-	uint presentModeCount = 0;
-	VK_CALL( vkGetPhysicalDeviceSurfacePresentModesKHR( m_physicalDevice, m_surface, &presentModeCount, nullptr ) );
-	Com_Assert_Fatal( presentModeCount > 0 );
-
-	std::vector<VkPresentModeKHR> modesAvailable;
-	modesAvailable.resize( presentModeCount );
-
-	VK_CALL( vkGetPhysicalDeviceSurfacePresentModesKHR( m_physicalDevice, m_surface, &presentModeCount, modesAvailable.data() ) );
-
-	// Keeping it simple: mailbox if available, FIFO otherwise
-	for ( const VkPresentModeKHR &mode : modesAvailable )
+	for ( GfxImage &img : m_sceneRT )
 	{
-		if ( mode == VK_PRESENT_MODE_MAILBOX_KHR )
-		{
-			presentMode = mode;
-			return;
-		}
+		const uvec2 winDims = m_window->Dims();
+
+		img.Init( winDims.x, winDims.y, 1u, 1u, 1u, VK_FORMAT_R8G8B8A8_UNORM, m_queueFamilyIdxGfx );
 	}
-
-	uint swapchainImgCount = 3;
-
-	BEGIN_INFO_STRUCT( VkPhysicalDeviceSurfaceInfo2KHR, surfaceInfo )
-		.surface = m_surface,
-	END_INFO_STRUCT;
-
-	CREATE_INFO_STRUCT( VkSurfaceCapabilities2KHR, surfaceCapabilities );
-	VK_CALL( vkGetPhysicalDeviceSurfaceCapabilities2KHR( m_physicalDevice, &surfaceInfo, &surfaceCapabilities ) );
-
-	swapchainImgCount = max( min( swapchainImgCount, surfaceCapabilities.surfaceCapabilities.maxImageCount ), surfaceCapabilities.surfaceCapabilities.minImageCount );
-
-	// Confirm that the window governs the swapchain image size. If this isn't true, the window relies on the image for sizing
-	Com_Assert_Fatal( surfaceCapabilities.surfaceCapabilities.currentExtent.width != 0xFFFFFFFF );
-
-	uint formatCount = 0;
-	VK_CALL( vkGetPhysicalDeviceSurfaceFormats2KHR( m_physicalDevice, &surfaceInfo, &formatCount, nullptr ) );
-	Com_Assert_Fatal( formatCount > 0 );
-
-	std::vector<VkSurfaceFormat2KHR> formats;
-	CREATE_INFO_STRUCT( VkSurfaceFormat2KHR, emptyFormat );
-	formats.resize( formatCount );
-	std::fill( formats.begin(), formats.end(), emptyFormat );
-
-	// for simplicity, we'll take the first supported format until there's a reason not to.
-	VK_CALL( vkGetPhysicalDeviceSurfaceFormats2KHR( m_physicalDevice, &surfaceInfo, &formatCount, formats.data() ) );
-
-	BEGIN_INFO_STRUCT( VkSwapchainCreateInfoKHR, swapchainInfo )
-		.surface = m_surface,
-		.minImageCount = swapchainImgCount,
-		.imageFormat = formats[0].surfaceFormat.format,
-		.imageColorSpace = formats[0].surfaceFormat.colorSpace,
-		.imageExtent = surfaceCapabilities.surfaceCapabilities.currentExtent,
-		.imageArrayLayers = 1u,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = presentMode,
-		.clipped = VK_TRUE,
-	END_INFO_STRUCT;
-	VK_CALL( vkCreateSwapchainKHR( m_device, &swapchainInfo, nullptr, &m_swapchain ) );
-
-	Com_Assert_Fatal( m_swapchain != VK_NULL_HANDLE );
 }
 
 
-void GfxSystem::DestroySwapchain()
+void GfxSystem::ShutdownPersistentResources()
 {
-	vkDestroySwapchainKHR( m_device, m_swapchain, nullptr );
-	m_swapchain = VK_NULL_HANDLE;
-
-	vkDestroySurfaceKHR( m_instance, m_surface, nullptr );
-	m_surface = VK_NULL_HANDLE;
+	for ( GfxImage &img : m_sceneRT )
+	{
+		img.Finalize();
+	}
 }
+
 
 void GfxSystem::Init( AppWindow &window )
 {
@@ -416,22 +353,54 @@ void GfxSystem::Init( AppWindow &window )
 	LoadGlobalVulkanFuncs();
 	InitVulkanInstance();
 	CreateVulkanDevice();
+	InitAllocator( m_instance, m_physicalDevice, m_device );
 	SetupQueues();
-	CreateSwapchain();
+	InitPersistentResources();
+
+	m_swapchain.Init( m_instance, m_physicalDevice, m_device, m_queueGfx, m_queueFamilyIdxGfx, m_window->Handle() );
+	GfxFence::InitPool( m_device );
 }
 
 
 void GfxSystem::Finalize()
 {
-	DestroySwapchain();
+	GfxFence::FinalizePool();
+	m_swapchain.Finalize();
+	GfxCmdBfr::FinalizePools();
+
+	ShutdownPersistentResources();
 	UnsetQueues();
+	FinalizeAllocator();
 	DestroyVulkanDevice();
 	ShutdownVulkanInstance();
 	ReleaseVulkanLib();
 }
 
+
 void GfxSystem::RenderFrame()
 {
+	static uint s_frame = 0u;
 
+	GfxFence swapchainImgReadyFence;
+	GfxFence cmdFinishedFence;
+	GfxCmdBfr cmd( m_device, m_queueGfx, m_queueFamilyIdxGfx );
+
+	cmd.BeginRecording();
+	GfxImage &nextSwapchainImg = m_swapchain.AcquireNextImage( cmd, swapchainImgReadyFence );
+
+	GfxImage &rt = m_sceneRT[s_frame % kBufferCount];
+	cmd.TransitionImgForUsage( rt, GfxImgUsage::TransferDst );
+	cmd.ClearColorImg( rt, g_glob.clearColor );
+	cmd.TransitionImgForUsage( rt, GfxImgUsage::TransferSrc );
+	cmd.BlitColor( rt, nextSwapchainImg );
+	m_swapchain.PrepForPresent( cmd );
+
+	swapchainImgReadyFence.Wait();
+	cmd.EndRecordingAndSubmit( cmdFinishedFence );
+
+	cmdFinishedFence.Wait();
+	m_swapchain.Present();
+
+	++s_frame;
 }
 

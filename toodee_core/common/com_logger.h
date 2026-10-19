@@ -4,7 +4,7 @@
 
 #include <print>
 
-enum class ComLogLevel : ubyte
+enum class ComLogLevel : byte
 {
 	Verbose,
 	Info,
