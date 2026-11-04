@@ -389,9 +389,7 @@ void GfxSystem::RenderFrame()
 	GfxImage &nextSwapchainImg = m_swapchain.AcquireNextImage( cmd, swapchainImgReadyFence );
 
 	GfxImage &rt = m_sceneRT[s_frame % kBufferCount];
-	cmd.TransitionImgForUsage( rt, GfxImgUsage::TransferDst );
 	cmd.ClearColorImg( rt, g_glob.clearColor );
-	cmd.TransitionImgForUsage( rt, GfxImgUsage::TransferSrc );
 	cmd.BlitColor( rt, nextSwapchainImg );
 	m_swapchain.PrepForPresent( cmd );
 

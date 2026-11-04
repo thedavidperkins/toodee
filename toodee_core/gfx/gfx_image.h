@@ -29,6 +29,8 @@ public:
 	void Init( uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx );
 	void Finalize();
 
+	bool ReadyForUsage( GfxImgUsage usage ) const;
+
 	uvec3 Dims() const { return { m_width, m_height, m_depth }; }
 	uint Width() const { return m_width; }
 	uint Height() const { return m_height; }

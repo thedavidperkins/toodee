@@ -29,8 +29,8 @@ public:
 	}
 
 	// commands for recording
-	void ClearColorImg( GfxImage &img, VkClearColorValue color );
 	void TransitionImgForUsage( GfxImage &image, GfxImgUsage usage );
+	void ClearColorImg( GfxImage &img, VkClearColorValue color );
 	void BlitColor( GfxImage &src, GfxImage &dst );
 
 	// manual finalize, but no manual init, because init operations are lazy with individual buffer allocation

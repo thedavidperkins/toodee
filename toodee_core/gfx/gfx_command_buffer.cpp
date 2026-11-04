@@ -181,23 +181,6 @@ void GfxCmdBfr::Submit( GfxFence &fence )
 }
 
 
-void GfxCmdBfr::ClearColorImg( GfxImage &img, VkClearColorValue color )
-{
-	Com_Assert_Fatal( m_isRecording );
-
-	VkImageSubresourceRange range =
-	{
-		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-		.baseMipLevel = 0,
-		.levelCount = 1,
-		.baseArrayLayer = 0,
-		.layerCount = 1,
-	};
-
-	vkCmdClearColorImage( m_cmdBfr, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range );
-}
-
-
 void GfxCmdBfr::TransitionImgForUsage( GfxImage &img, GfxImgUsage usage )
 {
 	Com_Assert_Fatal( m_isRecording );
@@ -212,10 +195,42 @@ void GfxCmdBfr::TransitionImgForUsage( GfxImage &img, GfxImgUsage usage )
 }
 
 
+void GfxCmdBfr::ClearColorImg( GfxImage &img, VkClearColorValue color )
+{
+	Com_Assert_Fatal( m_isRecording );
+	
+	if ( !img.ReadyForUsage( GfxImgUsage::TransferDst ) )
+	{
+		TransitionImgForUsage( img, GfxImgUsage::TransferDst );
+	}
+
+	VkImageSubresourceRange range =
+	{
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.baseMipLevel = 0,
+		.levelCount = 1,
+		.baseArrayLayer = 0,
+		.layerCount = 1,
+	};
+
+	vkCmdClearColorImage( m_cmdBfr, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range );
+}
+
+
 void GfxCmdBfr::BlitColor( GfxImage &src, GfxImage &dst )
 {
 	Com_Assert_Fatal( m_isRecording );
 	Com_Assert_Fatal( src.Dims() == dst.Dims() );
+
+	if ( !src.ReadyForUsage( GfxImgUsage::TransferSrc ) )
+	{
+		TransitionImgForUsage( src, GfxImgUsage::TransferSrc );
+	}
+
+	if ( !dst.ReadyForUsage( GfxImgUsage::TransferDst ) )
+	{
+		TransitionImgForUsage( dst, GfxImgUsage::TransferDst );
+	}
 
 	VkImageCopy copy =
 	{

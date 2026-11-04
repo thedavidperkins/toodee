@@ -132,6 +132,16 @@ void GfxImage::Finalize()
 }
 
 
+bool GfxImage::ReadyForUsage( GfxImgUsage usage ) const
+{
+	const VkAccessFlags2 access = GetAccessFlagsForUsage( usage );
+	const VkPipelineStageFlags2 stages = GetStageFlagsForUsage( usage );
+	const VkImageLayout layout = GetLayoutForUsage( usage );
+
+	return ( layout == m_layout ) && ( ( m_accessFlags & access ) == access ) && ( ( m_pipelineStageFlags & stages ) == stages );
+}
+
+
 VkImageMemoryBarrier2 GfxImage::GenerateAndUpdateImageTransitionInfo( GfxImgUsage usage, uint queueFamilyIdx )
 {
 	VkImageSubresourceRange range =

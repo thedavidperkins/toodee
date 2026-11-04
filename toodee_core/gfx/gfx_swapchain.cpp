@@ -162,8 +162,6 @@ GfxImage& GfxSwapchain::AcquireNextImage( GfxCmdBfr &cmd, GfxFence &fence )
 	Com_Assert_Fatal( m_currentIndex < ARRAY_COUNT( m_swapchainImages ) );
 
 	GfxImage &nextImage = m_swapchainImages[m_currentIndex];
-	cmd.TransitionImgForUsage( nextImage, GfxImgUsage::TransferDst );
-
 	return nextImage;
 }
 
