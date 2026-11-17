@@ -39,8 +39,15 @@ struct vec3_base
 		T vals[3];
 		struct
 		{
-			T x;
-			T y;
+			union
+			{
+				vec2_base<T> xy;
+				struct
+				{
+					T x;
+					T y;
+				};
+			};
 			T z;
 		};
 	};
