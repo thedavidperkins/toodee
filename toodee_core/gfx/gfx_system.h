@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx_swapchain.h"
+#include "gfx_pso.h"
 #include "vk/gfx_vk_api.h"
 #include "common/com_types.h"
 
@@ -38,6 +39,9 @@ private:
 	void InitPersistentResources();
 	void ShutdownPersistentResources();
 
+	void InitPipeline();
+	void ShutdownPipeline();
+
 	GfxSystem() {}
 	~GfxSystem() {}
 	GfxSystem( const GfxSystem & ) = delete;
@@ -60,6 +64,9 @@ private:
 	GfxSwapchain m_swapchain;
 
 	GfxImage m_sceneRT[kBufferCount]{};
+
+	GfxPipeline m_pipeline;
+	VkShaderModule m_shaders[2]{};
 
 #if DEBUG_BUILD
 	void SetupDebugMessenger();

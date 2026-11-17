@@ -5,6 +5,7 @@
 
 #include "common/com_types.h"
 
+#include <unordered_map>
 
 class GfxCmdBfr;
 
@@ -13,6 +14,7 @@ enum class GfxImgUsage : byte
 	TransferSrc,
 	TransferDst,
 	PresentSrc,
+	RenderTarget,
 };
 
 
@@ -25,8 +27,8 @@ public:
 	GfxImage &operator=( const GfxImage &rhs ) = delete;
 	GfxImage &operator=( GfxImage &&rhs ) = delete;
 
-	void Init( VkImage img, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx ); // init a wrapper for an unowned, single-mip, single-layer resource (e.g. swapchain image)
-	void Init( uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx );
+	void Init( VkDevice device, VkImage img, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx ); // init a wrapper for an unowned, single-mip, single-layer resource (e.g. swapchain image)
+	void Init( VkDevice device, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx );
 	void Finalize();
 
 	bool ReadyForUsage( GfxImgUsage usage ) const;
@@ -40,10 +42,15 @@ public:
 
 	operator VkImage() { return m_image; }
 
+	VkImageView View( VkImageAspectFlags aspectMask, uint baseMip, uint mipCount, uint baseLayer, uint layerCount );
+
 private:
 	VkImageMemoryBarrier2 GenerateAndUpdateImageTransitionInfo( GfxImgUsage usage, uint queueFamilyIndex );
+	VkImageViewType GenerateViewType() const;
 
+	VkDevice m_device = VK_NULL_HANDLE;
 	VkImage m_image = VK_NULL_HANDLE;
+	std::unordered_map<size_t, VkImageView> m_views;
 
 	VkPipelineStageFlags2 m_pipelineStageFlags = VK_PIPELINE_STAGE_2_NONE;
 	VkAccessFlags2 m_accessFlags = VK_ACCESS_2_NONE;

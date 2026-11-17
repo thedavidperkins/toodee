@@ -1,10 +1,12 @@
 #include "gfx_command_buffer.h"
 #include "gfx_image.h"
 #include "gfx_memory.h"
+#include "vk/gfx_vk_funcs.h"
 #include "vk/gfx_vk_struct_factory.h"
 #include "vk/gfx_vk_vma.h"
 
 #include "common/com_debug.h"
+#include "common/com_hash.h"
 
 
 static VkPipelineStageFlags2 GetStageFlagsForUsage( GfxImgUsage usage )
@@ -14,6 +16,8 @@ static VkPipelineStageFlags2 GetStageFlagsForUsage( GfxImgUsage usage )
 	case GfxImgUsage::TransferSrc:
 	case GfxImgUsage::TransferDst:
 		return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	case GfxImgUsage::RenderTarget:
+		return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	case GfxImgUsage::PresentSrc:
 	default:
 		return VK_PIPELINE_STAGE_NONE;
@@ -29,6 +33,8 @@ static VkAccessFlags2 GetAccessFlagsForUsage( GfxImgUsage usage )
 		return VK_ACCESS_2_TRANSFER_READ_BIT;
 	case GfxImgUsage::TransferDst:
 		return VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	case GfxImgUsage::RenderTarget:
+		return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 	case GfxImgUsage::PresentSrc:
 	default:
 		return VK_ACCESS_2_NONE;
@@ -46,17 +52,20 @@ static VkImageLayout GetLayoutForUsage( GfxImgUsage usage )
 		return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	case GfxImgUsage::PresentSrc:
 		return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	case GfxImgUsage::RenderTarget:
+		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	default:
 		return VK_IMAGE_LAYOUT_GENERAL;
 	}
 }
 
 
-void GfxImage::Init( VkImage img, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx )
+void GfxImage::Init( VkDevice device, VkImage img, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx )
 {
 	Com_Assert_Fatal( m_image == VK_NULL_HANDLE );
 	Com_Assert_Fatal( m_queueFamilyIdx == ~0u );
 
+	m_device = device;
 	m_image = img;
 
 	m_resourceOwned = false;
@@ -70,10 +79,12 @@ void GfxImage::Init( VkImage img, uint width, uint height, uint depth, uint mipC
 }
 
 
-void GfxImage::Init( uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx )
+void GfxImage::Init( VkDevice device, uint width, uint height, uint depth, uint mipCount, uint layerCount, VkFormat fmt, uint queueFamilyIdx )
 {
 	Com_Assert_Fatal( m_image == VK_NULL_HANDLE );
 	Com_Assert_Fatal( m_queueFamilyIdx == ~0u );
+
+	m_device = device;
 
 	VkImageType imgType = VK_IMAGE_TYPE_1D;
 	if ( depth > 1u )
@@ -121,6 +132,12 @@ void GfxImage::Init( uint width, uint height, uint depth, uint mipCount, uint la
 
 void GfxImage::Finalize()
 {
+	for ( std::pair<const size_t, VkImageView> &view : m_views )
+	{
+		vkDestroyImageView( m_device, view.second, nullptr );
+	}
+	m_views.clear();
+
 	if ( m_resourceOwned )
 	{
 		FreeImage( m_image, m_allocation );
@@ -139,6 +156,38 @@ bool GfxImage::ReadyForUsage( GfxImgUsage usage ) const
 	const VkImageLayout layout = GetLayoutForUsage( usage );
 
 	return ( layout == m_layout ) && ( ( m_accessFlags & access ) == access ) && ( ( m_pipelineStageFlags & stages ) == stages );
+}
+
+
+VkImageView GfxImage::View( VkImageAspectFlags aspectMask, uint baseMip, uint mipCount, uint baseLayer, uint layerCount )
+{
+	HashBuilder hash( static_cast<uint>( aspectMask ) );
+	hash.Build( baseMip ).Build( mipCount ).Build( baseLayer ).Build( layerCount );
+	if ( !m_views.contains( hash ) )
+	{
+		VkImageSubresourceRange range =
+		{
+			.aspectMask = aspectMask,
+			.baseMipLevel = baseMip,
+			.levelCount = mipCount,
+			.baseArrayLayer = baseLayer,
+			.layerCount = layerCount,
+		};
+
+		BEGIN_INFO_STRUCT( VkImageViewCreateInfo, viewInfo )
+			.image = m_image,
+			.viewType = GenerateViewType(),
+			.format = m_format,
+			.subresourceRange = range,
+		END_INFO_STRUCT;
+
+		VkImageView viewHandle = VK_NULL_HANDLE;
+		VK_CALL( vkCreateImageView( m_device, &viewInfo, nullptr, &viewHandle ) );
+
+		m_views[hash] = viewHandle;
+	}
+
+	return m_views[hash];
 }
 
 
@@ -172,4 +221,20 @@ VkImageMemoryBarrier2 GfxImage::GenerateAndUpdateImageTransitionInfo( GfxImgUsag
 	m_queueFamilyIdx = transitionInfo.dstQueueFamilyIndex;
 
 	return transitionInfo;
+}
+
+
+VkImageViewType GfxImage::GenerateViewType() const
+{
+	if ( m_height == 1u )
+	{
+		Com_Assert_Warn( m_depth == 1u );
+		return m_layerCount > 1u ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
+	}
+	else if ( m_depth == 1u )
+	{
+		return m_layerCount > 1u ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+	}
+
+	return VK_IMAGE_VIEW_TYPE_3D;
 }

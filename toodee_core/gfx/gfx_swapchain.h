@@ -38,6 +38,8 @@ public:
 	void Present();
 
 	VkSwapchainKHR &Handle() { return m_swapchain; }
+
+	VkFormat Format() const { return m_format; }
 private:
 	void InitTransitionCommands( uint queueIndex );
 	void FinalizeTransitionCommands();
@@ -52,4 +54,6 @@ private:
 
 	GfxImage m_swapchainImages[kSwapchainImgCount]{};
 	uint m_currentIndex = kUnsetIndex; // set on AcquireNextImage, unset on Present
+
+	VkFormat m_format = VK_FORMAT_UNDEFINED;
 };

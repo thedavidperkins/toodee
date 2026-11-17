@@ -14,6 +14,7 @@
 #include "common/com_utils.h"
 
 #include <algorithm>
+#include <fstream>
 
 #if DEBUG_BUILD
 static VkBool32 DebugCallback(
@@ -60,7 +61,7 @@ static VkBool32 DebugCallback(
 
 	if ( severity > VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT )
 	{
-		Com_Assert_Warn( false );
+		Com_AssertMsg_Warn( false, "VK validation fired" );
 	}
 
 	return VK_FALSE;
@@ -79,11 +80,9 @@ void GfxSystem::InitVulkanInstance()
 
 	const char *const desiredExtensions[] =
 	{
-		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 	};
 
@@ -203,9 +202,7 @@ void GfxSystem::CreateVulkanDevice()
 	{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME,
-#if DEBUG_BUILD
-		VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME,
-#endif // #if DEBUG_BUILD
+		VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
 	};
 
 	std::vector<const char *> enabledDeviceExtensions;
@@ -217,7 +214,7 @@ void GfxSystem::CreateVulkanDevice()
 			return std::strcmp( ext.extensionName, desiredExtension ) == 0;
 		} );
 
-		Com_Assert_Warn( it != availableExtensions.end() );
+		Com_AssertMsg_Warn( it != availableExtensions.end(), "Extension missing: %s", desiredExtension );
 		enabledDeviceExtensions.push_back( desiredExtension );
 	}
 
@@ -331,7 +328,7 @@ void GfxSystem::InitPersistentResources()
 	{
 		const uvec2 winDims = m_window->Dims();
 
-		img.Init( winDims.x, winDims.y, 1u, 1u, 1u, VK_FORMAT_R8G8B8A8_UNORM, m_queueFamilyIdxGfx );
+		img.Init( m_device, winDims.x, winDims.y, 1u, 1u, 1u, m_swapchain.Format(), m_queueFamilyIdxGfx);
 	}
 }
 
@@ -341,6 +338,59 @@ void GfxSystem::ShutdownPersistentResources()
 	for ( GfxImage &img : m_sceneRT )
 	{
 		img.Finalize();
+	}
+}
+
+
+void GfxSystem::InitPipeline()
+{
+	std::ifstream vsFile( "E:\\code_projects\\toodee\\shaders\\modules\\vert.spv", std::fstream::binary );
+	Com_Assert_Fatal( vsFile ? true : false );
+	vsFile.seekg( 0, vsFile.end );
+	const uint vsSize = static_cast<uint>( vsFile.tellg() );
+	const uint vsSizePadded = ( ( vsSize + 3 ) / 4 ) * 4;
+
+	std::vector<char> vsBytes;
+	vsBytes.resize( vsSizePadded, 0 );
+	vsFile.seekg( 0, vsFile.beg );
+	vsFile.read( vsBytes.data(), vsSize );
+	vsFile.close();
+
+	std::ifstream fsFile( "E:\\code_projects\\toodee\\shaders\\modules\\frag.spv", std::fstream::binary );
+	Com_Assert_Fatal( fsFile ? true : false );
+	fsFile.seekg( 0, fsFile.end );
+	const uint fsSize = static_cast<uint>( fsFile.tellg() );
+	const uint fsSizePadded = ( ( fsSize + 3 ) / 4 ) * 4;
+
+	std::vector<char> fsBytes;
+	fsBytes.resize( fsSizePadded, 0 );
+	fsFile.seekg( 0, fsFile.beg );
+	fsFile.read( fsBytes.data(), fsSize );
+	fsFile.close();
+
+	BEGIN_INFO_STRUCT( VkShaderModuleCreateInfo, vsInfo )
+		.codeSize = vsSizePadded,
+		.pCode = reinterpret_cast<uint *>( vsBytes.data() ),
+	END_INFO_STRUCT;
+
+	BEGIN_INFO_STRUCT( VkShaderModuleCreateInfo, fsInfo )
+		.codeSize = fsSizePadded,
+		.pCode = reinterpret_cast<uint *>( fsBytes.data() ),
+	END_INFO_STRUCT;
+
+	VK_CALL( vkCreateShaderModule( m_device, &vsInfo, nullptr, &m_shaders[0] ) );
+	VK_CALL( vkCreateShaderModule( m_device, &fsInfo, nullptr, &m_shaders[1] ) );
+
+	m_pipeline.Init( m_device, m_shaders[0], m_shaders[1], m_window->Dims(), m_swapchain.Format() );
+}
+
+
+void GfxSystem::ShutdownPipeline()
+{
+	m_pipeline.Finalize();
+	for ( VkShaderModule shader : m_shaders )
+	{
+		vkDestroyShaderModule( m_device, shader, nullptr );
 	}
 }
 
@@ -355,9 +405,10 @@ void GfxSystem::Init( AppWindow &window )
 	CreateVulkanDevice();
 	InitAllocator( m_instance, m_physicalDevice, m_device );
 	SetupQueues();
-	InitPersistentResources();
 
 	m_swapchain.Init( m_instance, m_physicalDevice, m_device, m_queueGfx, m_queueFamilyIdxGfx, m_window->Handle() );
+	InitPersistentResources();
+	InitPipeline();
 	GfxFence::InitPool( m_device );
 }
 
@@ -365,10 +416,11 @@ void GfxSystem::Init( AppWindow &window )
 void GfxSystem::Finalize()
 {
 	GfxFence::FinalizePool();
+	ShutdownPipeline();
+	ShutdownPersistentResources();
 	m_swapchain.Finalize();
 	GfxCmdBfr::FinalizePools();
 
-	ShutdownPersistentResources();
 	UnsetQueues();
 	FinalizeAllocator();
 	DestroyVulkanDevice();
@@ -390,6 +442,11 @@ void GfxSystem::RenderFrame()
 
 	GfxImage &rt = m_sceneRT[s_frame % kBufferCount];
 	cmd.ClearColorImg( rt, g_glob.clearColor );
+
+	cmd.BeginRender( m_pipeline, rt );
+	cmd.Draw( 3u );
+	cmd.EndRender();
+
 	cmd.BlitColor( rt, nextSwapchainImg );
 	m_swapchain.PrepForPresent( cmd );
 

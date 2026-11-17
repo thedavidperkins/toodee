@@ -89,11 +89,12 @@ void GfxSwapchain::Init( VkInstance instance,
 
 	// for simplicity, we'll take the first supported format until there's a reason not to.
 	VK_CALL( vkGetPhysicalDeviceSurfaceFormats2KHR( physicalDevice, &surfaceInfo, &formatCount, formats.data() ) );
+	m_format = formats[0].surfaceFormat.format;
 
 	BEGIN_INFO_STRUCT( VkSwapchainCreateInfoKHR, swapchainInfo )
 		.surface = m_surface,
 		.minImageCount = kSwapchainImgCount,
-		.imageFormat = formats[0].surfaceFormat.format,
+		.imageFormat = m_format,
 		.imageColorSpace = formats[0].surfaceFormat.colorSpace,
 		.imageExtent = surfaceCapabilities.surfaceCapabilities.currentExtent,
 		.imageArrayLayers = 1u,
@@ -118,7 +119,8 @@ void GfxSwapchain::Init( VkInstance instance,
 
 	for ( uint i = 0; i < kSwapchainImgCount; ++i )
 	{
-		m_swapchainImages[i].Init( swapchainImages[i],
+		m_swapchainImages[i].Init( m_device,
+								   swapchainImages[i],
 								   swapchainInfo.imageExtent.width,
 								   swapchainInfo.imageExtent.height,
 								   1u,
