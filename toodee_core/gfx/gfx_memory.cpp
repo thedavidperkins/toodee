@@ -31,6 +31,7 @@ static void SetFnPtrs()
 	PASS_FN_KHR( vkGetImageMemoryRequirements2 );
 	PASS_FN_KHR( vkBindBufferMemory2 );
 	PASS_FN_KHR( vkBindImageMemory2 );
+	PASS_FN_KHR( vkGetPhysicalDeviceProperties2 );
 	PASS_FN_KHR( vkGetPhysicalDeviceMemoryProperties2 );
 }
 
