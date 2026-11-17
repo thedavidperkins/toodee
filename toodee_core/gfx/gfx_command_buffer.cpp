@@ -1,4 +1,5 @@
 #include "gfx_command_buffer.h"
+#include "gfx_pso.h"
 #include "gfx_sync.h"
 #include "vk/gfx_vk_struct_factory.h"
 #include "vk/gfx_vk_funcs.h"
@@ -240,6 +241,47 @@ void GfxCmdBfr::BlitColor( GfxImage &src, GfxImage &dst )
 	};
 
 	vkCmdCopyImage( m_cmdBfr, src, src.m_layout, dst, dst.m_layout, 1u, &copy );
+}
+
+
+void GfxCmdBfr::BeginRender( GfxPipeline &pso, GfxImage &rt )
+{
+	if ( !rt.ReadyForUsage( GfxImgUsage::RenderTarget ) )
+	{
+		TransitionImgForUsage( rt, GfxImgUsage::RenderTarget );
+	}
+
+	vkCmdBindPipeline( m_cmdBfr, VK_PIPELINE_BIND_POINT_GRAPHICS, pso.m_pso );
+
+	const uvec2 dims = rt.Dims().xy;
+
+	BEGIN_INFO_STRUCT( VkRenderingAttachmentInfo, colorAttachment )
+		.imageView = rt.View( VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 ),
+		.imageLayout = rt.m_layout,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	END_INFO_STRUCT;
+
+	BEGIN_INFO_STRUCT( VkRenderingInfo, renderInfo )
+		.renderArea = { { 0, 0 }, { dims.x, dims.y } },
+		.layerCount = 1u,
+		.colorAttachmentCount = 1u,
+		.pColorAttachments = &colorAttachment,
+	END_INFO_STRUCT;
+
+	vkCmdBeginRendering( m_cmdBfr, &renderInfo );
+}
+
+
+void GfxCmdBfr::EndRender()
+{
+	vkCmdEndRendering( m_cmdBfr );
+}
+
+
+void GfxCmdBfr::Draw( uint vertCount )
+{
+	vkCmdDraw( m_cmdBfr, vertCount, 1u, 0u, 0u );
 }
 
 

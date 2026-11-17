@@ -6,6 +6,7 @@
 #include "common/com_types.h"
 
 class GfxFence;
+class GfxPipeline;
 
 class GfxCmdBfr
 {
@@ -32,6 +33,9 @@ public:
 	void TransitionImgForUsage( GfxImage &image, GfxImgUsage usage );
 	void ClearColorImg( GfxImage &img, VkClearColorValue color );
 	void BlitColor( GfxImage &src, GfxImage &dst );
+	void BeginRender( GfxPipeline &pso, GfxImage &rt );
+	void EndRender();
+	void Draw( uint vertCount );
 
 	// manual finalize, but no manual init, because init operations are lazy with individual buffer allocation
 	static void FinalizePools();
